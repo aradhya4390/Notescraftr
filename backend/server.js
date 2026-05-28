@@ -8,6 +8,9 @@ const errorHandler = require('./middleware/app.error');
 const cors = require('cors');
 const PDFDocument = require('pdfkit');
 const axios = require('axios');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 const app = express();
 
 // Middleware
@@ -43,6 +46,16 @@ const userSchema = new mongoose.Schema({
         unique: true,
         lowercase: true,
         trim: true
+    },
+    bio: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    profileVisibility: {
+        type: String,
+        enum: ['public', 'private'],
+        default: 'private'
     },
     password: {
         type: String,
@@ -736,7 +749,8 @@ app.post('/api/signup', async (req, res) => {
                 id: newUser._id,
                 firstName: newUser.firstName,
                 lastName: newUser.lastName,
-                email: newUser.email
+                email: newUser.email,
+                bio: newUser.bio
             }
         });
 
@@ -786,7 +800,8 @@ app.post('/api/login', async (req, res) => {
                 id: user._id,
                 firstName: user.firstName,
                 lastName: user.lastName,
-                email: user.email
+                email: user.email,
+                bio: user.bio
             }
         });
 
@@ -797,6 +812,104 @@ app.post('/api/login', async (req, res) => {
         });
     }
 });
+
+// UPDATE USER PROFILE Route
+app.put('/api/user/profile', authenticateToken, async (req, res) => {
+    try {
+        const { firstName, lastName, email, bio, profileVisibility } = req.body;
+
+        // Validate required fields
+        if (!firstName || !lastName || !email) {
+            return res.status(400).json({ 
+                message: 'First name, last name, and email are required' 
+            });
+        }
+
+        // Validate profileVisibility
+        if (profileVisibility && !['public', 'private'].includes(profileVisibility)) {
+            return res.status(400).json({ 
+                message: 'Invalid profile visibility setting' 
+            });
+        }
+
+        // Check if email is already taken by another user
+        const existingUser = await User.findOne({ 
+            email: email.toLowerCase(), 
+            _id: { $ne: req.user._id } 
+        });
+        if (existingUser) {
+            return res.status(400).json({ 
+                message: 'Email is already taken' 
+            });
+        }
+
+        // Update user profile
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user._id,
+            {
+                firstName: firstName.trim(),
+                lastName: lastName.trim(),
+                email: email.toLowerCase().trim(),
+                bio: bio ? bio.trim() : '',
+                profileVisibility: profileVisibility || 'private'
+            },
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedUser) {
+            return res.status(404).json({ 
+                message: 'User not found' 
+            });
+        }
+
+        res.json({
+            message: 'Profile updated successfully',
+            user: {
+                id: updatedUser._id,
+                firstName: updatedUser.firstName,
+                lastName: updatedUser.lastName,
+                email: updatedUser.email,
+                bio: updatedUser.bio,
+                profileVisibility: updatedUser.profileVisibility
+            }
+        });
+
+    } catch (error) {
+        console.error('Profile Update Error:', error);
+        res.status(500).json({ 
+            message: 'Internal server error during profile update' 
+        });
+    }
+});
+
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => {
+        const safeName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+        cb(null, safeName);
+    }
+});
+
+const upload = multer({
+    storage,
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/pdf') {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PDF files are allowed')); 
+        }
+    },
+    limits: {
+        fileSize: 20 * 1024 * 1024
+    }
+});
+
+app.use('/uploads', express.static(uploadsDir));
 
 // Get all notes
 app.get('/api/notes', authenticateToken, async (req, res) => {
@@ -837,6 +950,36 @@ app.post('/api/notes', authenticateToken, async (req, res) => {
         res.json(savedNote);
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+});
+
+// Upload PDF from the note creation modal
+app.post('/api/upload/pdf', authenticateToken, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'PDF file is required.' });
+        }
+
+        const newNote = new Note({
+            title: `Uploaded PDF: ${req.file.originalname}`,
+            content: `PDF file uploaded: ${req.file.originalname}`,
+            tags: ['uploaded', 'pdf'],
+            category: 'important',
+            user: req.user._id,
+            aiGenerated: false,
+            isPublished: true
+        });
+
+        const savedNote = await newNote.save();
+        return res.json({
+            success: true,
+            message: 'PDF uploaded and saved successfully.',
+            filePath: `/uploads/${req.file.filename}`,
+            note: savedNote
+        });
+    } catch (error) {
+        console.error('PDF Upload Error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to upload PDF.' });
     }
 });
 
@@ -896,60 +1039,136 @@ app.delete('/api/notes/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// UPDATED AI Note Generation Route - simplified to only use topic
-app.post('/api/ai/generate-notes', authenticateToken, async (req, res) => {
-    try {
-        const { topic } = req.body;
+// AI generation helper and route
+const HF_API_KEY = process.env.HUGGINGFACE_API_KEY || process.env.HF_API_KEY;
+const HF_MODEL = process.env.HUGGINGFACE_MODEL || 'google/flan-t5-large';
 
-        if (!topic || !topic.trim()) {
-            return res.status(400).json({
-                message: 'Topic is required for AI note generation'
-            });
+function buildAIRequestPrompt(prompt, options = {}) {
+    const parts = [
+        'Generate a response strictly based on the user\'s request.',
+        'Preserve the user intent and do not invent unrelated information.',
+    ];
+
+    if (options.length) {
+        const lengthInstruction = options.length.toString().toLowerCase();
+        if (lengthInstruction.includes('short') || lengthInstruction.includes('concise')) {
+            parts.push('Give a concise response.');
+        } else if (lengthInstruction.includes('long') || lengthInstruction.includes('detailed') || lengthInstruction.includes('explain')) {
+            parts.push('Provide a detailed explanation.');
+        } else {
+            parts.push(`Adjust length according to: ${options.length}.`);
+        }
+    }
+
+    if (options.format) {
+        parts.push(`Use the requested format: ${options.format}.`);
+    }
+
+    if (options.tone) {
+        parts.push(`Use a ${options.tone} tone.`);
+    }
+
+    parts.push(`User prompt: ${prompt.trim()}`);
+    return parts.join(' ');
+}
+
+async function generateAIResponse(prompt, options = {}) {
+    if (!HF_API_KEY) {
+        throw new Error('AI service not configured. Please set HUGGINGFACE_API_KEY.');
+    }
+
+    const fullPrompt = buildAIRequestPrompt(prompt, options);
+    const maxTokens = options.length && options.length.toString().toLowerCase().includes('short') ? 256 : 512;
+
+    const payload = {
+        inputs: fullPrompt,
+        parameters: {
+            max_new_tokens: maxTokens,
+            temperature: 0.7,
+            top_p: 0.9,
+            return_full_text: false
+        }
+    };
+
+    const response = await axios.post(
+        `https://api-inference.huggingface.co/models/${HF_MODEL}`,
+        payload,
+        {
+            headers: {
+                Authorization: `Bearer ${HF_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 20000
+        }
+    );
+
+    if (!response?.data) {
+        throw new Error('Invalid AI response from provider');
+    }
+
+    let output = '';
+    if (Array.isArray(response.data)) {
+        output = response.data[0]?.generated_text || response.data[0]?.text || '';
+    } else if (typeof response.data === 'object') {
+        output = response.data.generated_text || response.data.text || '';
+    }
+
+    if (!output || typeof output !== 'string') {
+        throw new Error('AI provider returned an empty or invalid output');
+    }
+
+    return output.trim();
+}
+
+async function handleAIGeneration(req, res) {
+    try {
+        const { prompt, topic, length, format, tone } = req.body;
+        const userPrompt = (prompt || topic || '').toString().trim();
+
+        if (!userPrompt) {
+            return res.status(400).json({ success: false, message: 'Prompt is required for AI generation' });
         }
 
-        const cleanTopic = topic.trim();
+        const generatedText = await generateAIResponse(userPrompt, { length, format, tone });
 
-        // Generate notes content based on topic
-        const generatedContent = await generateNotesFromTopic(cleanTopic);
-
-        // Save AI generated note record
         const aiNote = new AINote({
-            requestedTopic: cleanTopic,
-            generatedContent,
+            requestedTopic: userPrompt,
+            generatedContent: generatedText,
             user: req.user._id
         });
-
         await aiNote.save();
 
-        // Create a regular note with AI flag
+        const noteTitle = userPrompt.length > 60 ? `AI Generated Note: ${userPrompt.slice(0, 57)}...` : `AI Generated Note: ${userPrompt}`;
         const note = new Note({
-            title: `${cleanTopic} - AI Generated Study Notes`,
-            content: generatedContent,
-            tags: ['AI-Generated', 'Study Notes'],
+            title: noteTitle,
+            content: generatedText,
+            tags: ['AI-Generated'],
             category: 'important',
             user: req.user._id,
             aiGenerated: true,
-            aiTopic: cleanTopic,
-            detectedSubject: 'study_notes',
+            aiTopic: userPrompt,
             contentScore: 1,
             isPublished: true
         });
-
         const savedNote = await note.save();
 
-        res.json({
-            message: 'AI study notes generated successfully',
+        return res.json({
+            success: true,
+            output: generatedText,
             note: savedNote,
             aiNote: aiNote
         });
-
     } catch (error) {
-        console.error('AI Note Generation Error:', error);
-        res.status(500).json({
-            message: error.message || 'Failed to generate AI notes'
+        console.error('AI Generation Error:', error?.response?.data || error.message || error);
+        return res.status(500).json({
+            success: false,
+            message: error.response?.data?.error || error.message || 'Failed to generate AI response'
         });
     }
-});
+}
+
+app.post('/api/ai/generate', authenticateToken, handleAIGeneration);
+app.post('/api/ai/generate-notes', authenticateToken, handleAIGeneration);
 
 // Generate PDF for notes
 app.post('/api/notes/:id/generate-pdf', authenticateToken, async (req, res) => {
@@ -1072,7 +1291,7 @@ app.use('*', (req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
     console.log(`🚀 Enhanced NoteCraftr Server with Simplified AI Features running on port ${PORT}`);
     console.log(`📝 Features: Topic-based AI Generation, Content Moderation, PDF Export`);
