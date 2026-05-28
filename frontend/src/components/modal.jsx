@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import Cropper from 'react-easy-crop';
 import { jsPDF } from 'jspdf';
@@ -93,6 +93,7 @@ const CreateNoteModal = ({
   aiTopic,
   setAiTopic,
   onGenerateAI,
+  isGeneratingAI,
   apiUrl,
   onActionComplete
 }) => {
@@ -110,18 +111,22 @@ const CreateNoteModal = ({
   const videoRef = useRef(null);
 
   useEffect(() => {
-    if (!isOpen) {
-      resetModalState();
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
     if (videoRef.current && cameraStream) {
       videoRef.current.srcObject = cameraStream;
     }
   }, [cameraStream]);
 
-  const resetModalState = () => {
+  const stopCamera = useCallback(() => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, [cameraStream]);
+
+  const resetModalState = useCallback(() => {
     setMode('menu');
     setFile(null);
     setUploadError('');
@@ -133,17 +138,13 @@ const CreateNoteModal = ({
     setCroppedAreaPixels(null);
     setIsProcessing(false);
     stopCamera();
-  };
+  }, [stopCamera]);
 
-  const stopCamera = () => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach((track) => track.stop());
-      setCameraStream(null);
+  useEffect(() => {
+    if (!isOpen) {
+      resetModalState();
     }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-  };
+  }, [isOpen, resetModalState]);
 
   const handleOverlayClick = () => {
     handleCloseClick();
@@ -414,14 +415,15 @@ const CreateNoteModal = ({
             <button
               type="button"
               onClick={onGenerateAI}
+              disabled={isGeneratingAI}
               style={{
                 ...buttonStyle,
                 width: '100%',
-                background: '#4f46e5',
+                background: isGeneratingAI ? '#818cf8' : '#4f46e5',
                 color: '#fff'
               }}
             >
-              Generate AI Notes
+              {isGeneratingAI ? 'Generating AI...' : 'Generate AI Notes'}
             </button>
           </div>
         )}

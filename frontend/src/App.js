@@ -1,5 +1,5 @@
 import logo from './components/logo1.png';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import { MdArticle, MdStarBorder, MdCalendarToday, MdAlarm, MdLabelOutline, MdArchive, MdDeleteOutline, MdWarningAmber, MdSettings, MdSearch } from 'react-icons/md';
 import Welcome from './pages/Welcome';
@@ -34,7 +34,6 @@ function App() {
   const [archivedNotes, setArchivedNotes] = useState([]);
   const [trashedNotes, setTrashedNotes] = useState([]);
   const [editingNote, setEditingNote] = useState(null);
-  const [showAddForm, setShowAddForm] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   // UPDATED AI Features states - simplified to only use topic
@@ -67,21 +66,11 @@ function App() {
     }
   }, []);
 
-  // Fetch notes after login
-  useEffect(() => {
-    if (isLoggedIn && authToken) {
-      fetchNotes();
-      if (currentView === 'moderated') {
-        fetchModeratedNotes();
-      }
-    }
-  }, [isLoggedIn, authToken, currentView]);
-
   // API helper with auth headers
-  const getAuthHeaders = () => ({
-    'Authorization': `Bearer ${authToken}`,
+  const getAuthHeaders = useCallback(() => ({
+    Authorization: `Bearer ${authToken}`,
     'Content-Type': 'application/json'
-  });
+  }), [authToken]);
 
   const showMessage = (message, type = 'error') => {
     if (type === 'error') {
@@ -93,7 +82,7 @@ function App() {
     }
   };
 
-  const fetchNotes = async () => {
+  const fetchNotes = useCallback(async () => {
     try {
       setIsLoading(true);
       const res = await axios.get(`${API_URL}/notes`, {
@@ -119,9 +108,9 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [API_URL, getAuthHeaders]);
 
-  const fetchModeratedNotes = async () => {
+  const fetchModeratedNotes = useCallback(async () => {
     try {
       const res = await axios.get(`${API_URL}/moderated-notes`, {
         headers: getAuthHeaders()
@@ -130,7 +119,17 @@ function App() {
     } catch (err) {
       console.error('Failed to fetch moderated notes:', err);
     }
-  };
+  }, [API_URL, getAuthHeaders]);
+
+  // Fetch notes after login
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchNotes();
+      if (currentView === 'moderated') {
+        fetchModeratedNotes();
+      }
+    }
+  }, [isLoggedIn, currentView, fetchNotes, fetchModeratedNotes]);
 
   // UPDATED AI Note Generation - simplified to only use topic
   const handleGenerateAINotes = async () => {
@@ -141,7 +140,7 @@ function App() {
 
     try {
       setIsGeneratingAI(true);
-      const res = await axios.post(`${API_URL}/ai/generate-notes`, {
+      await axios.post(`${API_URL}/ai/generate-notes`, {
         topic: aiTopic.trim()
       }, {
         headers: getAuthHeaders()
@@ -426,7 +425,7 @@ function App() {
   const handleSignup = async (formData) => {
     try {
       setIsLoading(true);
-      const res = await axios.post(`${API_URL}/signup`, formData);
+      await axios.post(`${API_URL}/signup`, formData);
       
       showMessage('Signup successful! Please login.', 'success');
       setShowLogin(true);
@@ -551,35 +550,6 @@ function App() {
         return renderNotesView(notes, 'notes');
     }
   };
-
-  // UPDATED AI Features component - simplified to only use topic
-  const renderAIFeatures = () => (
-    <div className="ai-features">
-      <h3>AI Note Generation</h3>
-      <div className="ai-form-simplified">
-        <div className="form-group">
-          <label className="form-label">Topic</label>
-          <input
-            type="text"
-            value={aiTopic}
-            onChange={(e) => setAiTopic(e.target.value)}
-            placeholder="Enter any study topic (e.g., Physics Motion, Math Algebra, History World War)"
-            className="form-input-topic"
-          />
-          <p className="topic-help-text">
-            Enter any topic you want to study. AI will generate comprehensive notes for you.
-          </p>
-        </div>
-        <button
-          onClick={handleGenerateAINotes}
-          disabled={isGeneratingAI}
-          className="ai-generate-btn"
-        >
-          {isGeneratingAI ? 'Generating...' : 'Generate Notes'}
-        </button>
-      </div>
-    </div>
-  );
 
   const renderNotesView = (notesList, viewType) => {
     const filteredNotes = getFilteredNotes(notesList);
@@ -1077,6 +1047,7 @@ function App() {
         setShowAIFeatures={setShowAIFeatures}
         aiTopic={aiTopic}
         setAiTopic={setAiTopic}
+        isGeneratingAI={isGeneratingAI}
         onGenerateAI={handleGenerateAINotes}
         apiUrl={API_URL}
         onActionComplete={fetchNotes}
