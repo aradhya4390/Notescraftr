@@ -47,7 +47,7 @@ function App() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const API_URL = 'http://localhost:5001/api';
+  const API_URL = process.env.REACT_APP_API_URL || 'https://notescraftr-production.up.railway.app/api';
 
   // Available options
   const availableTags = ['Work', 'Personal', 'Ideas', 'Shopping', 'Travel', 'Health', 'Education', 'AI-Generated'];

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import './auth.css';
 
+const API_URL = process.env.REACT_APP_API_URL || 'https://notescraftr-production.up.railway.app/api';
+
 function Login({ onToggle, onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +20,7 @@ function Login({ onToggle, onLogin }) {
 
     setIsLoading(true);
     try {
-      const res = await axios.post('http://localhost:5001/api/login', { email, password });
+      const res = await axios.post(`${API_URL}/login`, { email, password });
       if (res.status === 200) {
         setMessage('Login Successful!');
         setTimeout(() => {

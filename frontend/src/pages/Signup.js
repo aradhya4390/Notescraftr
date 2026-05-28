@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import './auth.css';
 
+const API_URL = process.env.REACT_APP_API_URL || 'https://notescraftr-production.up.railway.app/api';
+
 function Signup({ onToggle, onSignup }) {
   const [formData, setFormData] = useState({
     firstName: '',
@@ -55,7 +57,7 @@ function Signup({ onToggle, onSignup }) {
     try {
       console.log('Sending signup request with data:', formData); // Debug log
       
-      const res = await axios.post('http://localhost:5001/api/signup', formData, {
+      const res = await axios.post(`${API_URL}/signup`, formData, {
         headers: {
           'Content-Type': 'application/json'
         },
@@ -86,7 +88,7 @@ function Signup({ onToggle, onSignup }) {
       if (err.code === 'ECONNABORTED') {
         setMessage("Connection timeout! Please check if the server is running.");
       } else if (err.code === 'ECONNREFUSED' || err.message.includes('Network Error')) {
-        setMessage("Cannot connect to server! Please ensure backend is running on port 5000.");
+        setMessage("Cannot connect to server! Please ensure the backend is available.");
       } else if (err.response) {
         // Server responded with error
         setMessage(err.response.data?.message || `Server Error: ${err.response.status}`);

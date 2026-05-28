@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
+const API_URL = process.env.REACT_APP_API_URL || 'https://notescraftr-production.up.railway.app/api';
+
 function Reminder() {
   const [reminders, setReminders] = useState([]);
   const [newReminder, setNewReminder] = useState({
@@ -17,7 +19,7 @@ function Reminder() {
 
   const fetchReminders = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/reminders');
+      const response = await axios.get(`${API_URL}/reminders`);
       setReminders(response.data || []);
     } catch (error) {
       console.error('Error fetching reminders:', error);
@@ -49,7 +51,7 @@ function Reminder() {
       };
 
       try {
-        const response = await axios.post('http://localhost:5000/api/reminders', reminderData);
+        const response = await axios.post(`${API_URL}/reminders`, reminderData);
         const savedReminder = response.data;
         setReminders([savedReminder, ...reminders]);
       } catch {
@@ -73,7 +75,7 @@ function Reminder() {
       const updatedReminder = { ...reminder, isCompleted: !reminder.isCompleted };
 
       try {
-        await axios.put(`http://localhost:5000/api/reminders/${id}`, updatedReminder);
+        await axios.put(`${API_URL}/reminders/${id}`, updatedReminder);
       } catch {
         console.warn('API unavailable, updating locally');
       }
@@ -93,7 +95,7 @@ function Reminder() {
 
     try {
       try {
-        await axios.delete(`http://localhost:5000/api/reminders/${id}`);
+        await axios.delete(`${API_URL}/reminders/${id}`);
       } catch {
         console.warn('API unavailable, deleting locally');
       }
