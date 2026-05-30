@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { MdStickyNote2, MdAutoAwesome, MdCloudSync } from 'react-icons/md';
+import logo from '../components/logo1.png';
 import './Welcome.css';
 
 function Welcome({ onEnter }) {
@@ -33,31 +35,10 @@ const handleClick = () => {
 };
   return (
     <div className={`welcome-container ${isVisible ? 'visible' : ''}`} onClick={handleClick}>
-      {/* Animated Background */}
-      <div className="welcome-background">
-        <div className="floating-orb orb-1"></div>
-        <div className="floating-orb orb-2"></div>
-        <div className="floating-orb orb-3"></div>
-        <div className="floating-orb orb-4"></div>
-        <div className="floating-orb orb-5"></div>
-      </div>
-
-      {/* Particles */}
-      <div className="particles">
-        {[...Array(20)].map((_, i) => (
-          <div key={i} className={`particle particle-${i + 1}`}></div>
-        ))}
-      </div>
-
       {/* Main Content */}
       <div className="welcome-content">
         <div className="logo-container">
-          <div className="logo-icon">📝</div>
-          <div className="logo-rings">
-            <div className="ring"></div>
-            <div className="ring"></div>
-            <div className="ring ring-3"></div>
-          </div>
+          <img className="welcome-logo-icon" src={logo} alt="NoteCraftr logo" />
         </div>
 
         <h1 className="welcome-title">
@@ -72,15 +53,15 @@ const handleClick = () => {
 
         <div className="feature-highlights">
           <div className="feature-item">
-            <span className="feature-icon">⚡</span>
+            <MdStickyNote2 className="feature-icon" />
             <span>Fast & Intuitive</span>
           </div>
           <div className="feature-item">
-            <span className="feature-icon">🔒</span>
+            <MdCloudSync className="feature-icon" />
             <span>Secure & Private</span>
           </div>
           <div className="feature-item">
-            <span className="feature-icon">🌟</span>
+            <MdAutoAwesome className="feature-icon" />
             <span>Beautiful Design</span>
           </div>
         </div>

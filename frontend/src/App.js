@@ -1,7 +1,7 @@
 import logo from './components/logo1.png';
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
-import { MdArticle, MdStarBorder, MdCalendarToday, MdAlarm, MdLabelOutline, MdArchive, MdDeleteOutline, MdWarningAmber, MdSettings, MdSearch } from 'react-icons/md';
+import { MdArticle, MdStarBorder, MdCalendarToday, MdAlarm, MdLabelOutline, MdArchive, MdDeleteOutline, MdWarningAmber, MdSettings, MdSearch, MdMenu } from 'react-icons/md';
 import Welcome from './pages/Welcome';
 import Signup from './pages/Signup';
 import Login from './pages/Login';
@@ -889,8 +889,9 @@ function App() {
           <button 
             className="sidebar-close"
             onClick={() => setIsSidebarOpen(false)}
+            aria-label="Close sidebar"
           >
-            ✖️
+            <MdMenu className="sidebar-toggle-icon" />
           </button>
         </div>
 
@@ -966,8 +967,9 @@ function App() {
             <button 
               className="hamburger-btn"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              aria-label="Toggle sidebar"
             >
-              ☰
+              <MdMenu />
             </button>
             <h1 className="app-title">
               <img src={logo} alt="NoteCraftr Logo" className="logo-icon" />

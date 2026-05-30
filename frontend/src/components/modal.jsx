@@ -104,6 +104,10 @@ const CreateNoteModal = ({
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraError, setCameraError] = useState('');
   const [capturedImage, setCapturedImage] = useState(null);
+  const [capturedImages, setCapturedImages] = useState([]);
+  const [rotation, setRotation] = useState(0);
+  const [brightness, setBrightness] = useState(100);
+  const [contrast, setContrast] = useState(100);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
@@ -133,6 +137,10 @@ const CreateNoteModal = ({
     setUploadStatus('');
     setCameraError('');
     setCapturedImage(null);
+    setCapturedImages([]);
+    setRotation(0);
+    setBrightness(100);
+    setContrast(100);
     setCrop({ x: 0, y: 0 });
     setZoom(1);
     setCroppedAreaPixels(null);
@@ -225,9 +233,20 @@ const CreateNoteModal = ({
     setCameraError('');
     setCapturedImage(null);
     setCroppedAreaPixels(null);
+    setRotation(0);
+    setBrightness(100);
+    setContrast(100);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const preferredConstraints = { video: { facingMode: { ideal: 'environment' } } };
+      let stream;
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(preferredConstraints);
+      } catch (error) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+
       setCameraStream(stream);
       setMode('camera');
     } catch (error) {
@@ -251,6 +270,11 @@ const CreateNoteModal = ({
     const dataUrl = canvas.toDataURL('image/jpeg');
     setCapturedImage(dataUrl);
     setMode('crop');
+    setRotation(0);
+    setBrightness(100);
+    setContrast(100);
+    setZoom(1);
+    setCrop({ x: 0, y: 0 });
     stopCamera();
   };
 
@@ -267,75 +291,151 @@ const CreateNoteModal = ({
       image.src = url;
     });
 
-  const getCroppedBlob = async (imageSrc, cropPixels) => {
+  const getRadianAngle = (degreeValue) => (degreeValue * Math.PI) / 180;
+
+  const rotateSize = (width, height, rotation) => {
+    const rotRad = getRadianAngle(rotation);
+    return {
+      width: Math.abs(Math.cos(rotRad) * width) + Math.abs(Math.sin(rotRad) * height),
+      height: Math.abs(Math.sin(rotRad) * width) + Math.abs(Math.cos(rotRad) * height)
+    };
+  };
+
+  const getCroppedBlob = async (imageSrc, cropPixels, rotationValue = 0, brightnessValue = 100, contrastValue = 100) => {
     const image = await createImage(imageSrc);
     const canvas = document.createElement('canvas');
     canvas.width = cropPixels.width;
     canvas.height = cropPixels.height;
     const ctx = canvas.getContext('2d');
 
-    ctx.drawImage(
-      image,
-      cropPixels.x,
-      cropPixels.y,
-      cropPixels.width,
-      cropPixels.height,
-      0,
-      0,
-      cropPixels.width,
-      cropPixels.height
-    );
+    const rotRad = getRadianAngle(rotationValue);
+    const { width: bBoxWidth, height: bBoxHeight } = rotateSize(image.width, image.height, rotationValue);
+
+    ctx.filter = `brightness(${brightnessValue}%) contrast(${contrastValue}%)`;
+    ctx.translate(-cropPixels.x, -cropPixels.y);
+    ctx.translate(bBoxWidth / 2, bBoxHeight / 2);
+    ctx.rotate(rotRad);
+    ctx.translate(-image.width / 2, -image.height / 2);
+    ctx.drawImage(image, 0, 0);
 
     return new Promise((resolve) => {
       canvas.toBlob((blob) => resolve(blob), 'image/jpeg');
     });
   };
 
-  const convertImageToPdfBlob = async (imageBlob) => {
-    return new Promise((resolve, reject) => {
+  const getDataUrlFromBlob = (blob) =>
+    new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        const img = new Image();
-        img.onload = () => {
-          const pdf = new jsPDF('p', 'pt', 'a4');
-          const pageWidth = pdf.internal.pageSize.getWidth();
-          const pageHeight = pdf.internal.pageSize.getHeight();
-          const ratio = Math.min(pageWidth / img.width, pageHeight / img.height);
-          const imgWidth = img.width * ratio;
-          const imgHeight = img.height * ratio;
-          const x = (pageWidth - imgWidth) / 2;
-
-          pdf.addImage(img, 'JPEG', x, 20, imgWidth, imgHeight);
-          const blob = pdf.output('blob');
-          resolve(blob);
-        };
-        img.onerror = reject;
-        img.src = reader.result;
-      };
+      reader.onloadend = () => resolve(reader.result);
       reader.onerror = reject;
-      reader.readAsDataURL(imageBlob);
+      reader.readAsDataURL(blob);
+    });
+
+  const convertImageDataUrlsToPdfBlob = async (imageDataUrls) => {
+    const pdf = new jsPDF('p', 'pt', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    for (let i = 0; i < imageDataUrls.length; i += 1) {
+      const image = await createImage(imageDataUrls[i]);
+      const ratio = Math.min(pageWidth / image.width, pageHeight / image.height);
+      const imgWidth = image.width * ratio;
+      const imgHeight = image.height * ratio;
+      const x = (pageWidth - imgWidth) / 2;
+      const y = (pageHeight - imgHeight) / 2;
+
+      pdf.addImage(image, 'JPEG', x, y, imgWidth, imgHeight);
+      if (i < imageDataUrls.length - 1) {
+        pdf.addPage();
+      }
+    }
+
+    return new Promise((resolve) => {
+      const blob = pdf.output('blob');
+      resolve(blob);
     });
   };
 
-  const handleSaveCroppedImageAsPDF = async () => {
+  const handleDownloadPdf = async () => {
+    if (!capturedImage && !capturedImages.length) {
+      setUploadError('No image available to convert.');
+      return;
+    }
+
+    setUploadError('');
+    setUploadStatus('Preparing PDF...');
+    setIsProcessing(true);
+
+    try {
+      const allImages = [...capturedImages];
+
+      if (capturedImage && croppedAreaPixels) {
+        const croppedBlob = await getCroppedBlob(capturedImage, croppedAreaPixels, rotation, brightness, contrast);
+        const currentDataUrl = await getDataUrlFromBlob(croppedBlob);
+        allImages.push(currentDataUrl);
+      }
+
+      if (!allImages.length) {
+        setUploadError('No image available to convert.');
+        return;
+      }
+
+      const pdfBlob = await convertImageDataUrlsToPdfBlob(allImages);
+      const downloadUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', `note-images-${Date.now()}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+      setUploadStatus('PDF downloaded successfully.');
+    } catch (error) {
+      setUploadError('Unable to convert image to PDF.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAddImageToBatch = async () => {
     if (!capturedImage || !croppedAreaPixels) {
       setUploadError('Crop the image before saving.');
       return;
     }
 
     setUploadError('');
-    setUploadStatus('Converting image to PDF...');
+    setUploadStatus('Saving image...');
     setIsProcessing(true);
 
     try {
-      const croppedBlob = await getCroppedBlob(capturedImage, croppedAreaPixels);
-      const pdfBlob = await convertImageToPdfBlob(croppedBlob);
-      await uploadPDF(pdfBlob, `camera-capture-${Date.now()}.pdf`);
+      const croppedBlob = await getCroppedBlob(capturedImage, croppedAreaPixels, rotation, brightness, contrast);
+      const dataUrl = await getDataUrlFromBlob(croppedBlob);
+      setCapturedImages((prev) => [...prev, dataUrl]);
+      setUploadStatus('Image added to batch.');
+      setCapturedImage(null);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setRotation(0);
+      setBrightness(100);
+      setContrast(100);
+      setCroppedAreaPixels(null);
+      await startCamera();
     } catch (error) {
-      setUploadError('Unable to convert and upload the PDF.');
+      setUploadError('Unable to save edited image.');
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleRetakePhoto = async () => {
+    setCapturedImage(null);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    setRotation(0);
+    setBrightness(100);
+    setContrast(100);
+    setCroppedAreaPixels(null);
+    await startCamera();
   };
 
   if (!isOpen) return null;
@@ -556,43 +656,114 @@ const CreateNoteModal = ({
 
       {mode === 'crop' && capturedImage && (
         <>
-          <div style={{ position: 'relative', height: '360px', background: '#111827', marginBottom: '16px' }}>
+          <div style={{ position: 'relative', height: '360px', background: '#111827', marginBottom: '16px', filter: `brightness(${brightness}%) contrast(${contrast}%)` }}>
             <Cropper
               image={capturedImage}
               crop={crop}
               zoom={zoom}
+              rotation={rotation}
               aspect={4 / 3}
               onCropChange={setCrop}
               onZoomChange={setZoom}
               onCropComplete={onCropComplete}
             />
           </div>
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-            <input
-              type="range"
-              min={1}
-              max={3}
-              step={0.1}
-              value={zoom}
-              onChange={(e) => setZoom(Number(e.target.value))}
-              style={{ width: '100%' }}
-            />
+
+          <div style={{ display: 'grid', gap: '12px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+              <label style={{ color: '#111827', fontWeight: 600 }}>Zoom</label>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.1}
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+              <label style={{ color: '#111827', fontWeight: 600 }}>Rotate</label>
+              <button type="button" style={{ ...buttonStyle, background: '#e5e7eb', color: '#111827' }} onClick={() => setRotation((prev) => (prev + 90) % 360)}>
+                +90°
+              </button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+              <label style={{ color: '#111827', fontWeight: 600 }}>Brightness</label>
+              <input
+                type="range"
+                min={50}
+                max={150}
+                step={1}
+                value={brightness}
+                onChange={(e) => setBrightness(Number(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+              <label style={{ color: '#111827', fontWeight: 600 }}>Contrast</label>
+              <input
+                type="range"
+                min={50}
+                max={150}
+                step={1}
+                value={contrast}
+                onChange={(e) => setContrast(Number(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </div>
           </div>
+
+          {capturedImages.length > 0 && (
+            <div style={{ marginBottom: '16px', color: '#111827' }}>
+              <strong>{capturedImages.length}</strong> image(s) in batch.
+            </div>
+          )}
+
           {uploadError && <p style={{ color: '#b91c1c', marginBottom: '16px' }}>{uploadError}</p>}
           {uploadStatus && <p style={{ color: '#047857', marginBottom: '16px' }}>{uploadStatus}</p>}
-          <button
-            type="button"
-            onClick={handleSaveCroppedImageAsPDF}
-            disabled={isProcessing}
-            style={{
-              ...buttonStyle,
-              background: '#2563eb',
-              color: '#fff',
-              width: '100%'
-            }}
-          >
-            {isProcessing ? 'Saving PDF...' : 'Save as PDF'}
-          </button>
+
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <button
+              type="button"
+              onClick={handleRetakePhoto}
+              disabled={isProcessing}
+              style={{
+                ...buttonStyle,
+                background: '#f3f4f6',
+                color: '#111827',
+                width: '100%'
+              }}
+            >
+              Retake Photo
+            </button>
+            <button
+              type="button"
+              onClick={handleAddImageToBatch}
+              disabled={isProcessing}
+              style={{
+                ...buttonStyle,
+                background: '#f59e0b',
+                color: '#fff',
+                width: '100%'
+              }}
+            >
+              Add Image to Batch
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={isProcessing}
+              style={{
+                ...buttonStyle,
+                background: '#2563eb',
+                color: '#fff',
+                width: '100%'
+              }}
+            >
+              {isProcessing ? 'Processing PDF...' : 'Convert to PDF'}
+            </button>
+          </div>
         </>
       )}
     </>

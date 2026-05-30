@@ -83,6 +83,12 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-title .logo-icon {
+  flex-shrink: 0;
 }
 
 .sidebar-close {
@@ -91,7 +97,10 @@ body {
   font-size: 18px;
   cursor: pointer;
   color: #666;
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
 }
 
 .sidebar-nav {
@@ -1007,12 +1016,23 @@ body {
 
 /* Responsive Design */
 @media (max-width: 768px) {
+  .app-container {
+    flex-direction: column;
+  }
+
   .sidebar {
-    width: 100%;
+    width: 78vw;
+    max-width: 340px;
+    left: -100%;
+  }
+
+  .sidebar.open {
+    left: 0;
   }
   
   .main-content {
     margin-left: 0 !important;
+    padding: 16px;
   }
   
   .sidebar-close {
@@ -1023,12 +1043,14 @@ body {
     gap: 12px;
   }
   
-  .header-right .welcome-text {
-    display: none;
+  .header-right {
+    flex-wrap: wrap;
+    gap: 12px;
   }
   
   .search-filter-container {
     flex-direction: column;
+    gap: 12px;
   }
   
   .notes-grid {
