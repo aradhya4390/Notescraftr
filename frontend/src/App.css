@@ -208,11 +208,6 @@ body {
   gap: 16px;
 }
 
-.welcome-text {
-  color: #6b7280;
-  font-size: 14px;
-}
-
 .logout-btn {
   background: #f3f4f6;
   border: none;
@@ -226,6 +221,21 @@ body {
 
 .logout-btn:hover {
   background: #e5e7eb;
+}
+
+/* Dashboard Welcome Section */
+.dashboard-welcome {
+  background: #f8f9fa;
+  padding: 16px 24px;
+  text-align: center;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.welcome-message {
+  color: #6b7280;
+  font-size: 14px;
+  margin: 0;
+  padding: 0;
 }
 
 /* Controls Section */
@@ -1047,7 +1057,11 @@ body {
     flex-wrap: wrap;
     gap: 12px;
   }
-  
+
+  .dashboard-welcome {
+    padding: 16px 24px;
+  }
+
   .search-filter-container {
     flex-direction: column;
     gap: 12px;
@@ -1086,6 +1100,14 @@ body {
 @media (max-width: 480px) {
   .app-header {
     padding: 12px 16px;
+  }
+
+  .dashboard-welcome {
+    padding: 12px 16px;
+  }
+
+  .welcome-message {
+    font-size: 13px;
   }
   
   .controls-section,

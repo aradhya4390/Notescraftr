@@ -977,9 +977,13 @@ function App() {
             </h1>
           </div>
           <div className="header-right">
-            <p className="welcome-text">Welcome back, {user?.firstName || 'User'}!</p>
             <button onClick={handleLogout} className="logout-btn">Logout</button>
           </div>
+        </div>
+
+        {/* Dashboard Welcome Section */}
+        <div className="dashboard-welcome">
+          <p className="welcome-message">Welcome back, {user?.firstName || 'User'}!</p>
         </div>
 
         {/* Search and filters */}
